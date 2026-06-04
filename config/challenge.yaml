@@ -1,0 +1,47 @@
+# RoboVerse University team — tune for arena day
+
+mapping_drone:
+  serial_address: "serial:///dev/ttyS6:921600"
+  takeoff_height_m: 0.8
+  # UWB ROS2 topic (from organizer stack)
+  uwb_topic: "uwb_tag"
+  # Camera intrinsics: leave null to read from RealSense at runtime
+  fx: null
+  fy: null
+  cx: null
+  cy: null
+  # ArUco dictionary must match printed markers (confirm with organizers)
+  aruco_dictionary: "DICT_6X6_250"
+  # Marker IDs that mean "valid landing pad" — fill after recon / organizer brief
+  valid_marker_ids: [0, 1, 2, 3, 4, 5]
+  invalid_marker_ids: [10, 11, 12, 13, 14, 15]
+  # Exploration waypoints in UWB N/E (meters). Add grid from mapping plan.
+  survey_waypoints:
+    - { n: 0.0, e: 0.0 }
+    - { n: 1.0, e: 0.0 }
+    - { n: 1.0, e: 1.0 }
+    - { n: 0.0, e: 1.0 }
+  hover_at_waypoint_s: 2.0
+
+navigation:
+  kp_xy: 0.1
+  kp_z: 0.1
+  max_vel_xy: 0.5
+  max_vel_z: 0.3
+  max_hover_xy: 0.15
+  max_hover_z: 0.10
+  n_threshold: 0.1
+  e_threshold: 0.1
+  d_threshold: 0.1
+  hover_deadband: 0.03
+
+swarm:
+  listen_seconds: 5
+  plane_ids: [1, 2, 3]
+  # Per-drone state machine timings (seconds)
+  takeoff_wait_s: 5
+  move_duration_s: 2.0
+  move_speed: 0.5
+  # YOLO weights path on C2 (train separately)
+  yolo_weights: "models/robomaster_best.pt"
+  snapshot_dir: "output/snapshots"

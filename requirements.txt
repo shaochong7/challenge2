@@ -1,0 +1,13 @@
+# Mapping drone (Challenge 1) — run on drone / C2 Ubuntu VM
+mavsdk>=2.0.0
+rclpy  # install via ROS2 Humble apt on Ubuntu 22.04
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyrealsense2  # Intel RealSense; platform-specific wheel on drone
+PyYAML>=6.0
+
+# Swarm (Challenge 2) — run on C2 Windows host or Ubuntu VM
+pyhulax  # install from organizer / https://pyhulax.xenops.ae
+
+# Optional: train YOLO on your laptop (not required on drone)
+# ultralytics>=8.0.0
