@@ -56,12 +56,19 @@ class DroneContext:
 
 
 def _load_landing_zones() -> list[dict]:
+    """Read the 3 valid landing zones (world N/E) produced by Challenge 1."""
     report = Path(__file__).resolve().parents[1] / "output" / "challenge1" / "landing_pad_report.json"
     if not report.exists():
         return []
     data = json.loads(report.read_text(encoding="utf-8"))
-    valid = [o for o in data.get("observations", []) if o.get("valid_landing")]
-    return valid[:3]
+    zones = data.get("valid_landing_zones", [])
+    if not zones:  # fall back to raw observations
+        zones = [
+            {"n": o.get("world_n", 0), "e": o.get("world_e", 0), "marker_id": o.get("marker_id")}
+            for o in data.get("observations", [])
+            if o.get("valid_landing")
+        ]
+    return zones[:3]
 
 
 def _elapsed(ctx: DroneContext) -> float:
@@ -123,8 +130,8 @@ def run_swarm_mission(config_path: str | None = None) -> None:
         ctx = contexts[ip]
         _set_state(ctx, DroneState.TAKEOFF)
         if i < len(landing_obs):
-            ctx.target_n = float(landing_obs[i].get("waypoint_n", 0))
-            ctx.target_e = float(landing_obs[i].get("waypoint_e", 0))
+            ctx.target_n = float(landing_obs[i].get("n", 0))
+            ctx.target_e = float(landing_obs[i].get("e", 0))
 
     takeoff_wait = float(swarm_cfg.get("takeoff_wait_s", 5))
     move_duration = float(swarm_cfg.get("move_duration_s", 2.0))

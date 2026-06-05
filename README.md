@@ -58,12 +58,18 @@ cd roboverse-drone-challenge
 python3 run_challenge1.py
 ```
 
-**What it does:**
+**What it does** (stitched from the organizer samples):
 
-1. Subscribes to UWB (`uwb_tag` topic)
-2. Arms, starts offboard, flies survey waypoints using **velocity control** (not position goto)
-3. Hovers at each point, grabs aligned RealSense color+depth
-4. Detects ArUco, classifies valid/invalid pads, writes `output/challenge1/landing_pad_report.json`
+1. Subscribes to UWB (`uwb_tag` topic) — *kolomee.py*
+2. Arms, starts offboard, flies survey waypoints using **velocity control** (not position goto) — *kolomee.py*
+3. Hovers at each point, grabs aligned RealSense color+depth — *getSyncDepthColor.py*
+4. Builds a **top-down occupancy grid** per waypoint — *generateTopDown.py*
+5. Detects ArUco, classifies valid/invalid, converts each pad to **world N/E** coordinates — *ArUco sample*
+
+**Outputs** in `output/challenge1/`:
+- `landing_pad_report.json` — observations + `valid_landing_zones` (world N/E) for Challenge 2
+- `arena_map.png` — top-down map: survey path + valid (green) / invalid (red) pads
+- `occupancy_wpNN.png` — per-waypoint occupancy grids
 
 ## Challenge 2 — Swarm
 
