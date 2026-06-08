@@ -38,6 +38,14 @@ navigation:
 swarm:
   listen_seconds: 5
   plane_ids: [1, 2, 3]
+  # UWB on C2 (organizer UWBParserThread.py) — tag ID per drone, same order as plane_ids
+  tag_ids: [0, 1, 2]
+  uwb_serial_port: null   # null = auto-detect USB COM port
+  uwb_baud_rate: 921600
+  uwb_nav_timeout_s: 120
+  landing_threshold_m: 0.05   # how close UWB must be to zone before search phase
+  min_move_speed: 0.05        # floor so P-controller never stalls above threshold
+  search_timeout_s: 15
   # Per-drone state machine timings (seconds)
   takeoff_wait_s: 5
   move_duration_s: 2.0

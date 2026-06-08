@@ -90,6 +90,18 @@ python run_challenge2.py
 
 **SDK docs:** https://pyhulax.xenops.ae
 
+**UWB on C2** (organizer `UWBParserThread.py` → `common/uwb_c2.py`):
+- USB serial parser gives each drone tag's `(N, E)` position
+- `MOVE_TO_ZONE` uses the same P-controller as the mapping drone, mapped to `pyhulax` `move(Direction, speed)`
+- Reads landing targets from Challenge 1 `valid_landing_zones`
+- **Not** pyhulax built-in auto-land — optional ArUco near pads is separate visual aid
+
+**Laptop dry-run:**
+```bash
+python scripts/dry_run_challenge1.py --fast   # produces landing_pad_report.json
+python scripts/dry_run_challenge2.py --fast # 3 fake HULAs fly to those zones via sim UWB
+```
+
 ## Practice: object detection
 
 - **ArUco / AprilTag / QR:** no training — `detection/aruco_depth.py`

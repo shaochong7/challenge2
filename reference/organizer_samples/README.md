@@ -14,4 +14,6 @@ project's own modules in `detection/` adapt these into testable, reusable form.
 | `getDepthPointCloud.py` | Point cloud vertices | — |
 | `getInfra.py` | Left/right IR streams | — |
 
-Source: organizer Google Drive (sample realsense python codes + RKNN folders).
+| `UWBParserThread.py` | C2 USB UWB parser | `common/uwb_c2.py` |
+
+Source: organizer Google Drive (sample realsense python codes + RKNN + UWB folders).
