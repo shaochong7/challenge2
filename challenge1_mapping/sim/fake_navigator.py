@@ -20,9 +20,11 @@ class FakeVelocityNavigator:
         gains: NavGains,
         sim_dt: float = 0.05,
         geofence: ArenaBounds | None = None,
+        sleep_s: float | None = None,
     ) -> None:
         self.gains = gains
         self.sim_dt = sim_dt
+        self.sleep_s = sim_dt if sleep_s is None else sleep_s
         self._geofence = geofence
         self.takeoff_yaw = 0.0
         self._down_m = -0.8
@@ -35,8 +37,9 @@ class FakeVelocityNavigator:
         target_d: float,
         *,
         ignore_height: bool = True,
+        validate_target: bool = True,
     ) -> None:
-        if self._geofence is not None:
+        if self._geofence is not None and validate_target:
             self._geofence.validate_point(target_n, target_e, "fly_to target")
         print(f"[SIM] Fly to N={target_n:.2f} E={target_e:.2f}")
         max_steps = 800
@@ -60,7 +63,7 @@ class FakeVelocityNavigator:
             if not ignore_height:
                 self._down_m += vd * self.sim_dt
             set_simulated_position(n, e)
-            await asyncio.sleep(self.sim_dt)
+            await asyncio.sleep(self.sleep_s)
         set_simulated_position(target_n, target_e)
         print("[SIM] Waypoint reached (timeout snap)")
 
@@ -80,7 +83,7 @@ class FakeVelocityNavigator:
                 lock_n - n, lock_e - e, 0.0, self.gains, ignore_height=ignore_height
             )
             set_simulated_position(n + vn * self.sim_dt, e + ve * self.sim_dt)
-            await asyncio.sleep(self.sim_dt)
+            await asyncio.sleep(self.sleep_s)
 
     async def start_offboard(self) -> None:
         print("[SIM] Offboard started")

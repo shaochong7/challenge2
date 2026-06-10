@@ -31,7 +31,8 @@ from common.uwb_listener import (
     start_uwb_thread,
     wait_for_uwb,
 )
-from common.velocity_nav import NavGains, VelocityNavigator, run_telemetry_tasks
+from common.position_nav import PositionNedNavigator
+from common.velocity_nav import NavGains, run_telemetry_tasks
 from detection.aruco_depth import ArucoDepthDetector
 from detection.occupancy_grid import GridConfig
 from detection.realsense_capture import RealSenseCapture
@@ -61,12 +62,13 @@ async def run_mission(config_path: str | None = None) -> None:
 
     geofence = ArenaBounds.from_config(cfg)
     gains = NavGains(**{k: nav_cfg[k] for k in NavGains.__dataclass_fields__})
-    navigator = VelocityNavigator(
+    home_n, home_e = await wait_for_uwb()
+    navigator = PositionNedNavigator(
         drone,
         gains,
-        get_height=lambda: state["down_m"],
+        home_n=home_n,
+        home_e=home_e,
         get_yaw=lambda: state["yaw"],
-        height_ready=lambda: state["height_ready"],
         geofence=geofence,
     )
 
@@ -80,7 +82,7 @@ async def run_mission(config_path: str | None = None) -> None:
         fy=rs.intrinsics.fy,
         cx=rs.intrinsics.cx,
         cy=rs.intrinsics.cy,
-        dictionary_name=m.get("aruco_dictionary", "DICT_6X6_250"),
+        dictionary_name=m.get("aruco_dictionary", "DICT_7X7_1000"),
         valid_ids=m.get("valid_marker_ids", []),
         invalid_ids=m.get("invalid_marker_ids", []),
         marker_size_m=m.get("marker_size_m"),
@@ -101,7 +103,6 @@ async def run_mission(config_path: str | None = None) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        home_n, home_e = await wait_for_uwb()
         navigator.takeoff_yaw = state["yaw"]
         print(f"Home UWB N={home_n:.2f} E={home_e:.2f}, yaw={navigator.takeoff_yaw:.1f}")
         print(f"Battery: {state['battery']:.0f}%")
@@ -136,7 +137,13 @@ async def run_mission(config_path: str | None = None) -> None:
             breach / dangerous location) propagates to the emergency lander."""
             await drone.action.arm()
             await navigator.start_offboard()
-            await navigator.fly_to(home_n, home_e, takeoff_d, ignore_height=False)
+            await navigator.fly_to(
+                home_n,
+                home_e,
+                takeoff_d,
+                ignore_height=False,
+                validate_target=False,
+            )
 
             for i, wp in enumerate(waypoints):
                 tn, te = float(wp["n"]), float(wp["e"])

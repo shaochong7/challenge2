@@ -15,6 +15,7 @@ import signal
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 if TYPE_CHECKING:
+    from common.position_nav import PositionNedNavigator
     from common.velocity_nav import VelocityNavigator
     from mavsdk import System
 
@@ -25,7 +26,7 @@ _STOP_SIGNALS = ("SIGINT", "SIGTERM")
 # Mapping drone (MAVSDK, asyncio)
 # --------------------------------------------------------------------------- #
 async def emergency_land_mavsdk(
-    drone: "System", navigator: "VelocityNavigator | None" = None
+    drone: "System", navigator: "VelocityNavigator | PositionNedNavigator | None" = None
 ) -> None:
     """Best-effort: zero velocity, stop offboard, and land in place.
 
@@ -52,7 +53,7 @@ async def emergency_land_mavsdk(
 async def fly_with_emergency_land(
     flight: Awaitable[None],
     drone: "System",
-    navigator: "VelocityNavigator | None" = None,
+    navigator: "VelocityNavigator | PositionNedNavigator | None" = None,
 ) -> None:
     """Run a flight coroutine; on Ctrl+C, kill signal, or crash, land first.
 

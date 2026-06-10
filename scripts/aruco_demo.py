@@ -22,22 +22,22 @@ sys.path.insert(0, str(ROOT))
 
 from detection.aruco_depth import ArucoDepthDetector  # noqa: E402
 
-VALID_IDS = [0, 1, 2]
-INVALID_IDS = [10, 11]
-DICT_NAME = "DICT_6X6_250"
+VALID_IDS = [11, 45, 51, 67, 101]
+INVALID_IDS = [201, 202]
+DICT_NAME = "DICT_7X7_1000"
 
 
 def build_scene() -> tuple[np.ndarray, np.ndarray]:
-    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_7X7_1000)
     canvas = np.full((600, 900, 3), 60, dtype=np.uint8)  # dark "floor"
     depth = np.zeros((600, 900), dtype=np.uint16)
 
     placements = [
-        (0, 80, 80, 1200),
-        (1, 360, 80, 1500),
-        (2, 640, 80, 1800),
-        (10, 200, 350, 1300),
-        (11, 520, 350, 1600),
+        (11, 80, 80, 1200),
+        (45, 360, 80, 1500),
+        (51, 640, 80, 1800),
+        (201, 200, 350, 1300),
+        (202, 520, 350, 1600),
     ]
     size = 160
     for marker_id, x, y, depth_mm in placements:

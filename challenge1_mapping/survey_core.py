@@ -12,7 +12,11 @@ import cv2
 from challenge1_mapping.arena_map import ArenaMap, marker_world_position
 from challenge2_swarm.search_pattern import Region, lawnmower_waypoints
 from detection.aruco_depth import ArucoDepthDetector
-from detection.occupancy_grid import GridConfig, build_occupancy_grid
+from detection.occupancy_grid import (
+    GridConfig,
+    build_occupancy_grid,
+    obstacle_points_from_depth,
+)
 from detection.realsense_capture import FramePair
 
 
@@ -71,7 +75,27 @@ def process_waypoint(
     )
     cv2.imwrite(str(output_dir / f"occupancy_wp{waypoint_index:02d}.png"), grid)
 
-    markers = aruco.detect(frames.color_bgr, frames.depth_mm)
+    for point in obstacle_points_from_depth(
+        depth_m,
+        frames.intrinsics.fx,
+        frames.intrinsics.fy,
+        frames.intrinsics.cx,
+        frames.intrinsics.cy,
+        grid_cfg,
+    ):
+        world_n, world_e = marker_world_position(
+            drone_n, drone_e, point.x_m, point.y_m, arena.cfg
+        )
+        arena.stamp_obstacle(
+            world_n,
+            world_e,
+            height_m=point.height_m,
+            distance_m=point.distance_m,
+            waypoint_index=waypoint_index,
+        )
+
+    annotated = frames.color_bgr.copy()
+    markers = aruco.detect(annotated, frames.depth_mm, draw=True)
     for obs in markers:
         world_n, world_e = marker_world_position(
             drone_n, drone_e, obs.x_m, obs.y_m, arena.cfg
@@ -89,10 +113,33 @@ def process_waypoint(
             }
         )
         status = "VALID" if obs.valid_landing else "INVALID"
+        color = (0, 220, 0) if obs.valid_landing else (0, 0, 255)
+        cv2.putText(
+            annotated,
+            f"id={obs.marker_id} {status} N={world_n:.2f} E={world_e:.2f}",
+            (obs.center_u + 8, max(18, obs.center_v - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
         print(
             f"  ArUco id={obs.marker_id} {status} "
             f"world N={world_n:.2f} E={world_e:.2f} (z={obs.z_m:.2f}m)"
         )
+    if not markers:
+        cv2.putText(
+            annotated,
+            "NO ARUCO",
+            (10, 24),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+    cv2.imwrite(str(output_dir / f"aruco_wp{waypoint_index:02d}.png"), annotated)
 
 
 def save_mission_report(
@@ -110,6 +157,15 @@ def save_mission_report(
         for p in arena.pads
         if p.valid
     ]
+    all_pads = [
+        {
+            "marker_id": p.marker_id,
+            "valid_landing": p.valid,
+            "n": p.n,
+            "e": p.e,
+        }
+        for p in arena.pads
+    ]
     report = {
         "challenge": 1,
         "simulated": simulated,
@@ -120,6 +176,21 @@ def save_mission_report(
             "e_max": arena.cfg.e_max,
         },
         "observations": observations,
+        "obstacles": [
+            {
+                "n": o.n,
+                "e": o.e,
+                "height_m": o.height_m,
+                "distance_m": o.distance_m,
+                "waypoint_index": o.waypoint_index,
+            }
+            for o in sorted(
+                arena.obstacles.values(),
+                key=lambda item: (item.waypoint_index, item.n, item.e),
+            )
+        ],
+        "detected_marker_ids": sorted({p.marker_id for p in arena.pads}),
+        "all_landing_zones": all_pads,
         "valid_landing_ids": sorted({p.marker_id for p in arena.pads if p.valid}),
         "valid_landing_zones": valid_pads,
     }
@@ -127,4 +198,6 @@ def save_mission_report(
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Report saved: {out_path}")
     print(f"Arena map saved: {output_dir / 'arena_map.png'}")
+    print(f"Mapped obstacle cells: {len(arena.obstacles)}")
+    print(f"Detected marker IDs: {report['detected_marker_ids']}")
     print(f"Valid landing zones: {len(valid_pads)}")

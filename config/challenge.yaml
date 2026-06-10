@@ -5,16 +5,18 @@
 arena:
   geofence_enabled: true
   safety_margin_m: 0.5   # inset from edges for waypoints/search targets
-  uwb_bounds: { n_min: -5.0, n_max: 5.0, e_min: -5.0, e_max: 5.0 }
+  # Rough arena size: y/North about 10 m, x/East about 5 m.
+  # Assumes the UWB origin is near one corner; adjust onsite from actual UWB readings.
+  uwb_bounds: { n_min: 0.0, n_max: 10.0, e_min: 0.0, e_max: 5.0 }
 
 mapping_drone:
   serial_address: "serial:///dev/ttyS6:921600"
-  # MINIMUM legal flight height is 3.5 m — survey altitude must stay >= this.
-  takeoff_height_m: 3.7
+  # Mapping flight height. 2.0 m keeps markers large; verify obstacle clearance onsite.
+  takeoff_height_m: 2.0
   # UWB ROS2 topic (from organizer stack)
   uwb_topic: "uwb_tag"
   # Down-facing RealSense (D430 or D450). Resolution is configurable on the unit;
-  # use a high resolution because targets are ~3.5 m away and occupy few pixels.
+  # use a high resolution so ArUco markers remain crisp in the labelled output.
   camera_model: "D430"        # D430 | D450 (sets field-of-view for footprint math)
   camera_width: 1280
   camera_height: 720
@@ -25,16 +27,16 @@ mapping_drone:
   cx: null
   cy: null
   # ArUco dictionary must match printed markers (confirm with organizers)
-  aruco_dictionary: "DICT_6X6_250"
+  aruco_dictionary: "DICT_7X7_1000"
   # Printed marker is 20 cm x 20 cm — enables pose fallback when depth has holes.
   marker_size_m: 0.20
-  # Marker IDs that mean "valid landing pad" — fill after recon / organizer brief
-  valid_marker_ids: [0, 1, 2, 3, 4, 5]
-  invalid_marker_ids: [10, 11, 12, 13, 14, 15]
+  # Valid IDs can change; the detector still reports every ArUco ID it sees.
+  valid_marker_ids: [11, 45, 51, 67, 101]
+  invalid_marker_ids: []
   # Auto full-area survey: generate a lawnmower grid covering the whole anchor
   # safe-zone (uwb_bounds inset by safety_margin_m) so the drone maps everything.
   auto_survey: true
-  survey_spacing_m: 2.0   # leg spacing; ~camera footprint width at 3.5 m (D430 ~4.8 m)
+  survey_spacing_m: 1.2   # tighter spacing for ~2 m flight height and overlap
   # Fallback manual waypoints (used when auto_survey is false), UWB N/E meters.
   survey_waypoints:
     - { n: 0.0, e: 0.0 }
@@ -70,6 +72,7 @@ swarm:
   min_move_speed: 0.05        # floor so P-controller never stalls above threshold
   # Per-drone state machine timings (seconds)
   takeoff_wait_s: 5
+  pad_land_wait_s: 1.0       # pause after landing on mapped pad before taking off to search
   move_speed: 0.5             # BRIEF RULE: HULA max speed 0.5 m/s (assumes pyhulax
                               # move() speed is m/s — VERIFY units on the test drone)
   hover_height_m: 1.1         # BRIEF: recommended HULA height; NEVER fly over obstacles
@@ -80,13 +83,13 @@ swarm:
   obstacle_stop_distance_m: 0.6   # start avoiding when an obstacle is this close ahead
   obstacle_clearance_m: 0.3       # inflate obstacles by ~drone radius + buffer
   # --- SEARCH phase: find + snapshot the ground-robot convoy (primary goal) ---
-  # Down-facing RealSense D430/D450 at >=3.5 m (same as mapping drone).
+  # Down-facing camera model used to estimate search footprint.
   camera_model: "D430"
   # Use the bounds the mapping drone surveyed (from its map) when available.
   use_map_bounds: true
   # Fallback arena bounds in UWB N/E if no Challenge 1 map is present — MEASURE.
   search_area: { n_min: 0.0, n_max: 10.0, e_min: 0.0, e_max: 10.0 }
-  # Leg spacing from common/camera_model.recommended_leg_spacing at 3.5 m:
+  # Leg spacing depends on camera model and flight height; tune onsite for overlap.
   #   D430 ~2.1 m, D450 ~3.6 m. Tighten if you fly higher or want more overlap.
   search_spacing_m: 2.0
   detection_conf: 0.4         # YOLO confidence threshold

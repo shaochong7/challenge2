@@ -150,8 +150,9 @@ class VelocityNavigator:
         target_d: float,
         *,
         ignore_height: bool = True,
+        validate_target: bool = True,
     ) -> None:
-        if self._geofence is not None:
+        if self._geofence is not None and validate_target:
             self._geofence.validate_point(target_n, target_e, "fly_to target")
         print(f"Fly to N={target_n:.2f} E={target_e:.2f} D={target_d:.2f}")
         while True:

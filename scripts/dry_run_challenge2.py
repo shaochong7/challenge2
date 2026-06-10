@@ -76,6 +76,8 @@ def run_dry_swarm(config_path: str | None = None, fast: bool = False) -> None:
     # Sim runs on a compact 1x1 m arena with a tight footprint so it stays fast,
     # independent of the real (meters-scale) arena/camera values in the config.
     cfg = dict(cfg)
+    cfg["arena"] = dict(cfg.get("arena", {}))
+    cfg["arena"]["geofence_enabled"] = False
     cfg["swarm"] = dict(swarm_cfg)
     cfg["swarm"]["search_area"] = {"n_min": 0.0, "n_max": 1.0, "e_min": 0.0, "e_max": 1.0}
     cfg["swarm"]["search_spacing_m"] = 0.3
@@ -117,20 +119,24 @@ def run_dry_swarm(config_path: str | None = None, fast: bool = False) -> None:
         uwb.stop()
 
     all_found: set = set()
-    landed = 0
+    pad_landed = 0
+    final_landed = 0
     lines = []
     for ip, ctx in contexts.items():
         n, e, ok = uwb.get_tag_ne(ctx.tag_id)
         all_found |= ctx.found_target_ids
-        landed += 1 if ctx.landed else 0
+        pad_landed += 1 if ctx.pad_landed else 0
+        final_landed += 1 if ctx.landed else 0
         lines.append(
-            f"{ip} tag={ctx.tag_id} state={ctx.state.name} landed={ctx.landed} "
+            f"{ip} tag={ctx.tag_id} state={ctx.state.name} pad_landed={ctx.pad_landed} "
+            f"final_landed={ctx.landed} "
             f"final N={n:.2f} E={e:.2f} zone N={ctx.target_n:.2f} E={ctx.target_e:.2f} "
             f"snapshots={ctx.snapshots_taken} robots_found={sorted(ctx.found_target_ids)}"
         )
     summary = (
         f"Total unique robots found: {len(all_found)}/{len(robots)} -> {sorted(all_found)}\n"
-        f"Landing pads occupied: {landed}/{len(contexts)}"
+        f"Landing pads visited: {pad_landed}/{len(contexts)}\n"
+        f"Final landings: {final_landed}/{len(contexts)}"
     )
     OUTPUT_LOG.write_text("\n".join(lines) + "\n" + summary, encoding="utf-8")
     print(f"\nDry run log: {OUTPUT_LOG}")

@@ -46,6 +46,7 @@ class FakeRealSenseCapture:
         obstacles: list[SimObstacle] | None = None,
         camera_height_m: float = CAMERA_HEIGHT_M,
         arena_cfg: ArenaMapConfig | None = None,
+        dictionary_name: str = "DICT_7X7_1000",
     ) -> None:
         from challenge1_mapping.sim.arena_world import DEFAULT_OBSTACLES, DEFAULT_PADS
 
@@ -54,6 +55,7 @@ class FakeRealSenseCapture:
         self.camera_height_m = camera_height_m
         self.arena_cfg = arena_cfg or ArenaMapConfig()
         self.intrinsics = Intrinsics(fx=FX, fy=FY, cx=CX, cy=CY)
+        self.dictionary_name = dictionary_name
 
     def get_frames_at(self, drone_n: float, drone_e: float) -> FramePair:
         color = np.full((HEIGHT, WIDTH, 3), 70, dtype=np.uint8)
@@ -66,7 +68,8 @@ class FakeRealSenseCapture:
         for obs in self.obstacles:
             self._stamp_obstacle(color, depth_mm, obs, drone_n, drone_e, z_m)
 
-        aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        aruco_dict_id = getattr(cv2.aruco, self.dictionary_name)
+        aruco_dict = cv2.aruco.getPredefinedDictionary(aruco_dict_id)
         for pad in self.pads:
             x_m, y_m = _world_to_camera_offset(
                 pad.n, pad.e, drone_n, drone_e, self.arena_cfg

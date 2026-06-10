@@ -7,9 +7,11 @@ Objectives (Challenge 2):
 Flow per drone:
 
   TAKEOFF
-    -> SEARCH       lawnmower coverage of its strip, snapshot robots it sees
-    -> GO_TO_ZONE   fly to its assigned landing pad, snapshot robots en route
-    -> LAND         precision-land on the pad
+    -> GO_TO_ZONE      fly to its assigned valid landing pad
+    -> LAND            land on the pad (deployment score)
+    -> TAKEOFF_SEARCH  take off again
+    -> SEARCH          lawnmower coverage of its strip, snapshot robots it sees
+    -> FINAL_LAND      land after search
     -> DONE
   SNAPSHOT is entered from any moving state and resumes that state afterwards.
 """
@@ -43,11 +45,13 @@ except ImportError:
 class DroneState(IntEnum):
     IDLE = 0
     TAKEOFF = 1
-    SEARCH = 2
-    GO_TO_ZONE = 3
-    SNAPSHOT = 4
-    LAND = 5
-    DONE = 6
+    GO_TO_ZONE = 2
+    LAND = 3
+    TAKEOFF_SEARCH = 4
+    SEARCH = 5
+    SNAPSHOT = 6
+    FINAL_LAND = 7
+    DONE = 8
 
 
 @dataclass
@@ -62,6 +66,7 @@ class DroneContext:
     target_n: float = 0.0
     target_e: float = 0.0
     has_zone: bool = False
+    pad_landed: bool = False
     landed: bool = False
     # search coverage
     search_waypoints: list[tuple[float, float]] = field(default_factory=list)
@@ -259,6 +264,7 @@ def run_swarm_loop(
             print(f"{ip}: no landing zone assigned (will land in place)")
 
     takeoff_wait = float(swarm_cfg.get("takeoff_wait_s", 5))
+    pad_land_wait = float(swarm_cfg.get("pad_land_wait_s", 1.0))
     move_speed = float(swarm_cfg.get("move_speed", 0.5))
     # Decouple the swarm speed cap from the mapping drone (which is limited to
     # 0.3 m/s). The HULA may fly up to its own move_speed (brief: 0.5 m/s).
@@ -276,7 +282,7 @@ def run_swarm_loop(
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     mode = "SIM" if simulated else "LIVE"
-    print(f"Swarm SEARCH mission ({mode}) — Ctrl+C to stop")
+    print(f"Swarm pad-first search mission ({mode}) - Ctrl+C to stop")
 
     def _nav_to(ctx, tn, te):
         tick = uwb_nav_tick(
@@ -326,9 +332,6 @@ def run_swarm_loop(
             return True
         return False
 
-    def _next_after_search(ctx) -> DroneState:
-        return DroneState.GO_TO_ZONE if ctx.has_zone else DroneState.LAND
-
     def _takeoff(api, height_m: float) -> None:
         """Take off to the recommended height. pyhulax build may or may not accept a
         height arg; try it, fall back to a plain takeoff (brief height: ~1.1 m)."""
@@ -347,12 +350,45 @@ def run_swarm_loop(
                 if ctx.state == DroneState.TAKEOFF:
                     _takeoff(api, hover_height_m)
                     if _elapsed(ctx) >= (0.5 if simulated else takeoff_wait):
-                        if do_area_search and ctx.search_waypoints:
+                        if ctx.has_zone:
+                            _set_state(ctx, DroneState.GO_TO_ZONE)
+                        else:
                             ctx.search_idx = 0
                             ctx.wp_started = time.time()
-                            _set_state(ctx, DroneState.SEARCH)
-                        else:
-                            _set_state(ctx, _next_after_search(ctx))
+                            _set_state(
+                                ctx,
+                                DroneState.SEARCH
+                                if do_area_search and ctx.search_waypoints
+                                else DroneState.FINAL_LAND,
+                            )
+
+                elif ctx.state == DroneState.GO_TO_ZONE:
+                    tick = _nav_to(ctx, ctx.target_n, ctx.target_e)
+                    if tick.at_goal or _elapsed(ctx) > nav_timeout:
+                        _set_state(ctx, DroneState.LAND)
+
+                elif ctx.state == DroneState.LAND:
+                    if not ctx.pad_landed:
+                        api.land()
+                        ctx.pad_landed = True
+                        ctx.landed = True
+                        print(
+                            f"{ip}: LANDED on mapped pad N={ctx.target_n:.2f} "
+                            f"E={ctx.target_e:.2f}"
+                        )
+                    if do_area_search and ctx.search_waypoints:
+                        if _elapsed(ctx) >= (0.2 if simulated else pad_land_wait):
+                            _set_state(ctx, DroneState.TAKEOFF_SEARCH)
+                    else:
+                        _set_state(ctx, DroneState.DONE)
+
+                elif ctx.state == DroneState.TAKEOFF_SEARCH:
+                    _takeoff(api, hover_height_m)
+                    ctx.landed = False
+                    if _elapsed(ctx) >= (0.5 if simulated else takeoff_wait):
+                        ctx.search_idx = 0
+                        ctx.wp_started = time.time()
+                        _set_state(ctx, DroneState.SEARCH)
 
                 elif ctx.state == DroneState.SEARCH:
                     # snapshot robots seen during coverage (recon goal)
@@ -360,7 +396,7 @@ def run_swarm_loop(
                         continue
                     # advance along lawnmower coverage path
                     if ctx.search_idx >= len(ctx.search_waypoints):
-                        _set_state(ctx, _next_after_search(ctx))
+                        _set_state(ctx, DroneState.FINAL_LAND)
                         continue
                     wn, we = ctx.search_waypoints[ctx.search_idx]
                     tick = _nav_to(ctx, wn, we)
@@ -373,14 +409,6 @@ def run_swarm_loop(
                             )
                         ctx.search_idx += 1
                         ctx.wp_started = time.time()
-
-                elif ctx.state == DroneState.GO_TO_ZONE:
-                    # snapshot robots seen while travelling toward the pad (step 7)
-                    if _detect_while_moving(ctx):
-                        continue
-                    tick = _nav_to(ctx, ctx.target_n, ctx.target_e)
-                    if tick.at_goal or _elapsed(ctx) > nav_timeout:
-                        _set_state(ctx, DroneState.LAND)
 
                 elif ctx.state == DroneState.SNAPSHOT:
                     api.hover()
@@ -395,6 +423,15 @@ def run_swarm_loop(
                     print(f"{ip}: SNAPSHOT {out.name} targets={ids} ({count} boxes)")
                     ctx._pending = []
                     _set_state(ctx, ctx.resume_state)
+
+                elif ctx.state == DroneState.FINAL_LAND:
+                    api.land()
+                    ctx.landed = True
+                    print(
+                        f"{ip}: FINAL LAND - {len(ctx.found_target_ids)} robots found, "
+                        f"pad_landed={ctx.pad_landed}"
+                    )
+                    _set_state(ctx, DroneState.DONE)
 
                 elif ctx.state == DroneState.LAND:
                     # precision-land on the assigned pad (step 8)

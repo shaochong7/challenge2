@@ -17,6 +17,8 @@ def test_dry_run_swarm_finds_convoy_and_lands():
     assert "state=DONE" in text
     # The swarm should collectively find all 5 ground robots via coverage search
     assert "Total unique robots found: 5/5" in text
-    # ...and every drone should occupy its assigned landing pad
-    assert "Landing pads occupied: 3/3" in text
-    assert "landed=True" in text
+    # ...and every drone should land on its assigned pad before searching
+    assert "Landing pads visited: 3/3" in text
+    assert "Final landings: 3/3" in text
+    assert "pad_landed=True" in text
+    assert "final_landed=True" in text

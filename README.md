@@ -2,7 +2,7 @@
 
 Competition code for **Challenge 1** (mapping drone + ArUco landing pads) and **Challenge 2** (3× HULA swarm + convoy detection), built from organizer references:
 
-- `kolomee.py` — UWB + velocity offboard navigation
+- `move_it.py` — MAVSDK position-NED offboard navigation
 - `huladola.py` + `dola.py` — swarm discovery and video
 - ArUco + depth sample — fiducial + RealSense deprojection
 
@@ -10,7 +10,7 @@ Competition code for **Challenge 1** (mapping drone + ArUco landing pads) and **
 
 ```
 config/challenge.yaml      # IDs, waypoints, gains — edit before competition
-common/                    # UWB ROS listener, velocity navigator
+common/                    # UWB ROS listener, position-NED / velocity nav helpers
 detection/                 # ArUco+depth, RealSense, occupancy grid, RKNN/YOLO
 challenge1_mapping/        # Mapping mission → landing_pad_report.json
 challenge2_swarm/          # Swarm FSM + snapshots
@@ -89,30 +89,29 @@ Markers are **20 cm × 20 cm**. With the size known, the ArUco detector falls ba
 **pose estimation (`solvePnP`)** when depth has holes — common on flat markers at 3.5 m —
 instead of dropping the detection. At 3.5 m a 20 cm marker is only ~50 px wide (1280 px,
 D430), so keep resolution high and verify detection in the arena.
-
-## Cameras & flight height (confirmed)
+## Cameras & flight height
 
 - **Mounting:** down-facing (matches organizer `generateTopDown.py`).
-- **Model:** Intel RealSense **D430 or D450**; **resolution is configurable** — set it
-  high (config `camera_width/height`, default 1280×720) since targets are far at altitude.
-- **Minimum flight height: 3.5 m** — survey/search altitude must stay at or above this
-  (`mapping_drone.takeoff_height_m` is 3.7 m).
+- **Model:** Intel RealSense **D430 or D450**; **resolution is configurable**. Keep
+  `camera_width/height` high (default 1280x720) so marker IDs stay crisp.
+- **Mapping height:** current config uses `mapping_drone.takeoff_height_m: 2.0`,
+  matching the organiser `move_it.py` sample. Verify onsite that this safely clears
+  obstacles and satisfies the safety brief.
 
-Footprint = how much ground one frame covers, from `common/camera_model.py`. At 3.5 m:
+Footprint = how much ground one frame covers, from `common/camera_model.py`. At 2.0 m:
 
-| Module | Color footprint | Depth footprint | Lawnmower leg spacing | Ground res @1280px |
-|---|---|---|---|---|
-| D430 | 4.8 × 2.7 m | 6.6 × 3.9 m | ~2.1 m | ~3.8 mm/px |
-| D450 | 7.0 × 4.5 m | 6.6 × 3.9 m | ~3.6 m | ~5.5 mm/px |
+| Module | Color footprint | Suggested survey spacing |
+|---|---|---|
+| D430 | ~2.8 x 1.5 m | ~1.2 m |
+| D450 | ~4.0 x 2.5 m | ~2.0 m |
 
 Consequences baked into the code/config:
-- **Search legs are meters apart, not centimeters** — set `swarm.search_spacing_m` from the
-  table (e.g. ~2 m for D430), *not* the dry-run placeholder value.
-- **Small objects = few pixels.** A 0.2 m marker at 3.5 m is only ~50 px wide at 1280 — use
-  high resolution and large ArUco markers, and verify YOLO still fires at that scale.
-- A down-facing camera sees the floor at ~3.5 m everywhere; obstacle extraction from the
-  occupancy grid needs a height threshold below the floor plane.
-
+- **Mapping legs are tighter at 2 m.** Current `mapping_drone.survey_spacing_m` is
+  `1.2` for safe overlap with D430.
+- A 20 cm marker is easier to read at 2 m than at higher altitude, but coverage
+  requires more survey legs.
+- A down-facing camera sees the floor everywhere; obstacle extraction uses surfaces
+  that are closer than the estimated floor plane.
 ## Detection backends
 
 Two different machines run two different detectors — keep them straight:
@@ -132,8 +131,8 @@ whatever model you export. Originals kept in `reference/organizer_samples/`.
 
 ## Before competition day
 
-1. **Confirm ArUco dictionary** with organizers (`DICT_6X6_250` in config).
-2. Fill **`valid_marker_ids`** / **`invalid_marker_ids`** in `config/challenge.yaml`.
+1. **ArUco dictionary:** current organiser update is `DICT_7X7_1000`.
+2. **Marker IDs:** current organiser update is `[11, 45, 51, 67, 101]`.
 3. Measure the **`arena.uwb_bounds`** (anchor coverage). With `mapping_drone.auto_survey: true`
    the drone auto-generates a full-area lawnmower survey over the safe-zone — tune
    `survey_spacing_m` to the camera footprint. (Set `auto_survey: false` to use manual
@@ -154,10 +153,10 @@ python3 run_challenge1.py
 
 **What it does** (stitched from the organizer samples):
 
-1. Subscribes to UWB (`uwb_tag` topic) — *kolomee.py*
+1. Subscribes to UWB (`uwb_tag` topic) for geofence/map coordinates
 2. Arms, starts offboard, climbs to `takeoff_height_m` (≥ 3.5 m)
 3. Flies a **full-area lawnmower survey** (auto-generated over the anchor safe-zone) using
-   **velocity control** (not position goto) — *kolomee.py*
+   MAVSDK **position-NED offboard setpoints** (`set_position_velocity_ned`) — *move_it.py*
 4. Hovers at each point, grabs aligned RealSense color+depth — *getSyncDepthColor.py*
 5. Builds a **top-down occupancy grid** per waypoint — *generateTopDown.py*
 6. Detects ArUco, classifies valid/invalid, converts each pad to **world N/E** coordinates — *ArUco sample*
@@ -235,6 +234,15 @@ python scripts/occupancy_demo.py    # visual occupancy grid -> output/occupancy_
 python scripts/dry_run_challenge1.py --fast   # full simulated mission (~1 min)
 ```
 
+**RealSense-only ArUco check on the mapping drone** (no arming / no flight):
+
+```bash
+python3 scripts/realsense_aruco_check.py
+python3 scripts/realsense_aruco_check.py --frames 30 --show
+```
+
+Annotated frames are saved to `output/aruco_check/`.
+
 **Dry-run** (`scripts/dry_run_challenge1.py`) fakes UWB navigation + down-facing
 camera, runs the same survey loop as the real drone, and writes:
 
@@ -250,10 +258,11 @@ camera, runs the same survey loop as the real drone, and writes:
 
 ## Tuning navigation
 
-Edit `navigation` section in `config/challenge.yaml` (`kp_xy`, `max_vel_xy`, thresholds). Match organizer `kolomee.py` defaults first, then tune in arena.
+Edit `navigation` section in `config/challenge.yaml` (`kp_xy`, `max_vel_xy`, thresholds). The mapping drone now uses organiser `move_it.py` style position-NED setpoints, with UWB still used for geofence and arrival checks.
 
 ## Important rules from organizers
 
-- Use **offboard + velocity setpoints**, not MAVSDK position goto for mapping drone.
-- Keep sending setpoints while in offboard (see `prime_offboard()`).
+- Use **offboard + position-NED setpoints** for the mapping drone, following organiser `move_it.py`.
+- Keep sending/holding setpoints while in offboard.
 - Swarm loop must stay **non-blocking** — use per-drone states, not long `sleep()` for one drone.
+

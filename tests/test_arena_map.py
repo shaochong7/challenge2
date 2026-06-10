@@ -50,3 +50,12 @@ def test_render_has_landing_pads():
     # green channel set somewhere (valid pad), red channel set somewhere (invalid)
     assert (img[:, :, 1] > 100).any()
     assert (img[:, :, 2] > 100).any()
+
+
+def test_render_has_visible_obstacle_outline():
+    arena = ArenaMap(ArenaMapConfig())
+    arena.stamp_obstacle(0.0, 0.0, height_m=0.5, distance_m=1.0, waypoint_index=0)
+    img = arena.render_bgr()
+    # Obstacles render in orange/yellow, not as nearly invisible single white cells.
+    orange = (img[:, :, 2] > 180) & (img[:, :, 1] > 80) & (img[:, :, 0] < 80)
+    assert orange.sum() > 10

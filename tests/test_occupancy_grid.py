@@ -2,7 +2,11 @@
 
 import numpy as np
 
-from detection.occupancy_grid import GridConfig, build_occupancy_grid
+from detection.occupancy_grid import (
+    GridConfig,
+    build_occupancy_grid,
+    obstacle_points_from_depth,
+)
 
 # Typical RealSense-ish intrinsics for 640x480
 FX = FY = 600.0
@@ -14,8 +18,8 @@ def test_grid_shape_and_camera_marker():
     cfg = GridConfig()
     grid = build_occupancy_grid(depth, FX, FY, CX, CY, cfg)
     assert grid.shape == (cfg.height_cells, cfg.width_cells)
-    # Camera marker (128) at bottom center
-    assert grid[cfg.height_cells - 1, cfg.width_cells // 2] == 128
+    # Down-facing local map is centered on the drone/reference point.
+    assert grid[cfg.height_cells // 2, cfg.width_cells // 2] == 128
 
 
 def test_empty_when_depth_out_of_range():
@@ -26,22 +30,30 @@ def test_empty_when_depth_out_of_range():
 
 
 def test_obstacle_registers_in_grid():
-    depth = np.zeros((480, 640), dtype=np.float32)
-    depth[200:280, 280:360] = 2.0  # a patch 2 m away near image center
+    depth = np.full((480, 640), 2.0, dtype=np.float32)  # floor
+    depth[200:280, 280:360] = 1.5  # obstacle top, closer than floor
     cfg = GridConfig(denoise=False)
     grid = build_occupancy_grid(depth, FX, FY, CX, CY, cfg)
     assert np.count_nonzero(grid == 255) > 0
-    # 2 m forward at 0.05 m/cell -> row ~ 40 cells from bottom
+    # Patch is near image center, so it should map near the drone reference.
     occupied_rows = np.where((grid == 255).any(axis=1))[0]
-    expected_row = cfg.height_cells - 1 - int(2.0 / cfg.resolution_m)
-    assert occupied_rows.min() <= expected_row + 3
-    assert occupied_rows.max() >= expected_row - 3
+    assert abs(int(occupied_rows.mean()) - cfg.height_cells // 2) < 15
 
 
 def test_centered_obstacle_maps_near_center_column():
-    depth = np.zeros((480, 640), dtype=np.float32)
-    depth[230:250, 310:330] = 1.5  # near principal point -> X ~ 0
+    depth = np.full((480, 640), 2.0, dtype=np.float32)
+    depth[230:250, 310:330] = 1.5  # near principal point -> X/Y ~ 0
     cfg = GridConfig(denoise=False)
     grid = build_occupancy_grid(depth, FX, FY, CX, CY, cfg)
     cols = np.where((grid == 255).any(axis=0))[0]
     assert abs(int(cols.mean()) - cfg.width_cells // 2) < 5
+
+
+def test_obstacle_points_export_distances():
+    depth = np.full((480, 640), 2.0, dtype=np.float32)
+    depth[230:250, 310:330] = 1.5
+    points = obstacle_points_from_depth(depth, FX, FY, CX, CY, GridConfig(denoise=False))
+    assert points
+    p = min(points, key=lambda item: item.distance_m)
+    assert p.height_m > 0.4
+    assert p.distance_m < 0.1

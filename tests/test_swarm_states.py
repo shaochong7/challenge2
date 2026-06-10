@@ -1,4 +1,4 @@
-"""Swarm FSM state ordering for the new search -> zone -> land flow."""
+"""Swarm FSM state ordering for the pad -> search flow."""
 
 import pytest
 
@@ -8,11 +8,21 @@ from challenge2_swarm.swarm_core import DroneContext, DroneState, setup_obstacle
 
 def test_states_present():
     names = {s.name for s in DroneState}
-    assert {"TAKEOFF", "SEARCH", "GO_TO_ZONE", "SNAPSHOT", "LAND", "DONE"} <= names
+    assert {
+        "TAKEOFF",
+        "GO_TO_ZONE",
+        "LAND",
+        "TAKEOFF_SEARCH",
+        "SEARCH",
+        "SNAPSHOT",
+        "FINAL_LAND",
+        "DONE",
+    } <= names
 
 
-def test_search_precedes_zone_and_land():
-    assert DroneState.SEARCH < DroneState.GO_TO_ZONE < DroneState.LAND < DroneState.DONE
+def test_pad_landing_precedes_search():
+    assert DroneState.GO_TO_ZONE < DroneState.LAND < DroneState.TAKEOFF_SEARCH
+    assert DroneState.TAKEOFF_SEARCH < DroneState.SEARCH < DroneState.FINAL_LAND
 
 
 def _ctx() -> DroneContext:

@@ -20,10 +20,14 @@ def test_dry_run_writes_outputs(tmp_path, monkeypatch):
     assert (out / "landing_pad_report.json").exists()
     assert (out / "arena_map.png").exists()
     assert (out / "occupancy_wp00.png").exists()
+    assert (out / "aruco_wp00.png").exists()
     assert (out / "dry_run_preview_wp00.png").exists()
 
     report = json.loads((out / "landing_pad_report.json").read_text(encoding="utf-8"))
     assert report["simulated"] is True
     assert report["challenge"] == 1
     assert len(report["observations"]) > 0
+    assert len(report["obstacles"]) > 0
+    assert len(report["detected_marker_ids"]) > 0
+    assert len(report["all_landing_zones"]) >= len(report["valid_landing_zones"])
     assert len(report["valid_landing_zones"]) > 0

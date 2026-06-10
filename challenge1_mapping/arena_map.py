@@ -14,7 +14,7 @@ physically mounted; confirm in the arena and flip via ArenaMapConfig if needed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -53,6 +53,15 @@ class LandingPad:
     e: float
 
 
+@dataclass
+class MappedObstacle:
+    n: float
+    e: float
+    height_m: float
+    distance_m: float
+    waypoint_index: int
+
+
 class ArenaMap:
     """Top-down occupancy + landing-pad map indexed by UWB North/East."""
 
@@ -63,6 +72,7 @@ class ArenaMap:
         self.occupancy = np.zeros((self.rows, self.cols), dtype=np.uint8)
         self.path: list[tuple[float, float]] = []
         self.pads: list[LandingPad] = []
+        self.obstacles: dict[tuple[int, int], MappedObstacle] = {}
 
     def in_bounds(self, n: float, e: float) -> bool:
         return self.cfg.n_min <= n < self.cfg.n_max and self.cfg.e_min <= e < self.cfg.e_max
@@ -73,21 +83,51 @@ class ArenaMap:
         row = int((self.cfg.n_max - n) / self.cfg.resolution_m)
         return row, col
 
-    def stamp_obstacle(self, n: float, e: float) -> None:
+    def stamp_obstacle(
+        self,
+        n: float,
+        e: float,
+        height_m: float = 0.0,
+        distance_m: float = 0.0,
+        waypoint_index: int = -1,
+    ) -> None:
         if not self.in_bounds(n, e):
             return
         r, c = self.world_to_cell(n, e)
         if 0 <= r < self.rows and 0 <= c < self.cols:
             self.occupancy[r, c] = 255
+            key = (r, c)
+            existing = self.obstacles.get(key)
+            if existing is None or height_m > existing.height_m:
+                self.obstacles[key] = MappedObstacle(
+                    n=n,
+                    e=e,
+                    height_m=height_m,
+                    distance_m=distance_m,
+                    waypoint_index=waypoint_index,
+                )
 
     def add_path_point(self, n: float, e: float) -> None:
         self.path.append((n, e))
 
     def add_landing_pad(self, marker_id: int, valid: bool, n: float, e: float) -> None:
+        for i, pad in enumerate(self.pads):
+            if pad.marker_id == marker_id:
+                self.pads[i] = LandingPad(marker_id=marker_id, valid=valid, n=n, e=e)
+                return
         self.pads.append(LandingPad(marker_id=marker_id, valid=valid, n=n, e=e))
 
     def render_bgr(self) -> np.ndarray:
-        img = cv2.cvtColor(self.occupancy, cv2.COLOR_GRAY2BGR)
+        img = np.zeros((self.rows, self.cols, 3), dtype=np.uint8)
+        obstacle_contours = []
+
+        if self.obstacles:
+            obstacle_mask = (self.occupancy > 0).astype(np.uint8) * 255
+            kernel = np.ones((11, 11), np.uint8)
+            obstacle_mask = cv2.dilate(obstacle_mask, kernel, iterations=1)
+            obstacle_contours, _ = cv2.findContours(
+                obstacle_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
 
         for i in range(1, len(self.path)):
             r0, c0 = self.world_to_cell(*self.path[i - 1])
@@ -102,4 +142,9 @@ class ArenaMap:
                 img, str(pad.marker_id), (c + 6, r),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1,
             )
+        if obstacle_contours:
+            cv2.drawContours(img, obstacle_contours, -1, (0, 120, 255), thickness=2)
+            for obstacle in self.obstacles.values():
+                r, c = self.world_to_cell(obstacle.n, obstacle.e)
+                cv2.circle(img, (c, r), 2, (0, 180, 255), -1)
         return img

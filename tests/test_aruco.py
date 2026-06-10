@@ -36,6 +36,26 @@ def test_detects_known_marker_id():
     assert obs[0].valid_landing is True
 
 
+def test_detects_organizer_7x7_marker_id():
+    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_7X7_1000)
+    marker = cv2.aruco.generateImageMarker(aruco_dict, 45, 200)
+    img = np.full((480, 480, 3), 255, dtype=np.uint8)
+    img[140:340, 140:340] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+    depth = np.full(img.shape[:2], 1500, dtype=np.uint16)
+    det = ArucoDepthDetector(
+        fx=600,
+        fy=600,
+        cx=240,
+        cy=240,
+        dictionary_name="DICT_7X7_1000",
+        valid_ids=[11, 45, 51, 67, 101],
+    )
+    obs = det.detect(img, depth)
+    assert len(obs) == 1
+    assert obs[0].marker_id == 45
+    assert obs[0].valid_landing is True
+
+
 def test_invalid_id_classified_invalid():
     img = _make_scene(marker_id=10)
     depth = np.full(img.shape[:2], 1200, dtype=np.uint16)
