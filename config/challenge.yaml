@@ -70,7 +70,7 @@ swarm:
   uwb_baud_rate: 921600
   # Align raw UWB parser coordinates to the active cage.
   # Cage 1: x=0.0, y=0.0 | Cage 2: x=5.5, y=0.0 | Cage 3: x=5.5, y=5.5
-  uwb_origin_x: 0.0
+  uwb_origin_x: 5.0
   uwb_origin_y: 0.0
   uwb_nav_timeout_s: 120
   waypoint_threshold_m: 0.12  # how close UWB must be to count a waypoint reached
