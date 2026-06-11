@@ -1,7 +1,10 @@
 """SimTargetSensor proximity sensing."""
 
+import cv2
+import numpy as np
+
 from challenge2_swarm.sim.ground_robots import GroundRobot
-from challenge2_swarm.target_sensor import SimTargetSensor
+from challenge2_swarm.target_sensor import ArucoTargetSensor, SimTargetSensor
 from common.uwb_c2 import SimulatedUWBC2
 
 
@@ -37,3 +40,25 @@ def test_save_snapshot_writes_file(tmp_path):
     n = sensor.save_snapshot(_Ctx(0), seen, out)
     assert n == 1
     assert out.exists()
+
+
+def test_aruco_sensor_detects_pyhulax_frame():
+    marker_id = 11
+    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_7X7_1000)
+    marker = cv2.aruco.generateImageMarker(aruco_dict, marker_id, 120)
+    canvas = np.full((220, 220), 255, dtype=np.uint8)
+    canvas[50:170, 50:170] = marker
+    bgr = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+
+    class _Frame:
+        image = bgr
+
+    class _Stream:
+        latest_frame = _Frame()
+
+    class _ArucoCtx:
+        stream = _Stream()
+
+    sensor = ArucoTargetSensor("DICT_7X7_1000")
+    seen = sensor.sense(_ArucoCtx())
+    assert [target.target_id for target in seen] == [marker_id]

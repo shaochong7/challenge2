@@ -28,7 +28,7 @@ except ImportError:
 
     class Direction:  # type: ignore[no-redef]
         FORWARD = "FORWARD"
-        BACKWARD = "BACKWARD"
+        BACK = "BACKWARD"
         LEFT = "LEFT"
         RIGHT = "RIGHT"
 
@@ -36,7 +36,7 @@ except ImportError:
 # Direction -> unit (dNorth, dEast)
 DIR_DELTA = {
     Direction.FORWARD: (1.0, 0.0),
-    Direction.BACKWARD: (-1.0, 0.0),
+    Direction.BACK: (-1.0, 0.0),
     Direction.RIGHT: (0.0, 1.0),
     Direction.LEFT: (0.0, -1.0),
 }
@@ -102,25 +102,88 @@ class MapObstacleSensor:
 class HulaObstacleSensor:
     """HULA onboard obstacle sensing (lidar) via pyhulax.
 
-    The pyhulax SDK exposes "obstacle sensing" but the exact accessor varies by
-    build. Set `reader` to a callable returning a dict {Direction: distance_m}
-    once you confirm the call on the test drone (see _default_reader).
+    pyhulax usually exposes barrier sensors as directional boolean flags rather
+    than precise distances. We adapt those flags to the nav interface:
+      blocked -> 0.0 m
+      clear   -> math.inf
 
-    FAIL SAFE: if no reader is wired, distance_ahead returns 0.0 (blocked) so the
-    drone refuses to advance into unknown space rather than risk flying over an
-    obstacle.
+    If a reader or future SDK build returns directional numeric distances
+    (for example forward_m or forward_cm), those are used directly.
+
+    FAIL SAFE: if no reader is available or a read fails, distance_ahead returns
+    0.0 (blocked) so the drone refuses to advance into unknown space.
     """
 
     def __init__(self, api, reader=None) -> None:
         self.api = api
-        self._wired = reader is not None
+        self._wired = reader is not None or self._has_default_reader()
         self.reader = reader or self._default_reader
         self._warned = False
 
+    def _has_default_reader(self) -> bool:
+        return (
+            hasattr(self.api, "get_obstacles")
+            or hasattr(getattr(self.api, "_server", None), "Plane_getBarrier")
+        )
+
+    @staticmethod
+    def _value(data, name: str):
+        if isinstance(data, dict):
+            return data.get(name)
+        return getattr(data, name, None)
+
+    @classmethod
+    def _distance(cls, data, *names: str) -> float | None:
+        for name in names:
+            value = cls._value(data, name)
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                return 0.0 if value else math.inf
+            try:
+                distance = float(value)
+            except (TypeError, ValueError):
+                continue
+            if name.endswith("_cm"):
+                distance /= 100.0
+            return max(0.0, distance)
+        return None
+
+    @classmethod
+    def _flags_to_distances(cls, data) -> dict:
+        forward = cls._distance(
+            data,
+            "forward_m", "front_m", "forward_distance_m", "front_distance_m",
+            "forward_cm", "front_cm", "forward_distance_cm", "front_distance_cm",
+            "forward", "front",
+        )
+        back = cls._distance(
+            data,
+            "back_m", "backward_m", "back_distance_m", "backward_distance_m",
+            "back_cm", "backward_cm", "back_distance_cm", "backward_distance_cm",
+            "back", "backward",
+        )
+        left = cls._distance(
+            data,
+            "left_m", "left_distance_m", "left_cm", "left_distance_cm", "left",
+        )
+        right = cls._distance(
+            data,
+            "right_m", "right_distance_m", "right_cm", "right_distance_cm", "right",
+        )
+        return {
+            Direction.FORWARD: math.inf if forward is None else forward,
+            Direction.BACK: math.inf if back is None else back,
+            Direction.LEFT: math.inf if left is None else left,
+            Direction.RIGHT: math.inf if right is None else right,
+        }
+
     def _default_reader(self):
-        # TODO: replace with the confirmed pyhulax obstacle-sensing call, e.g.
-        #   return self.api.get_obstacle_distances()  # {Direction: meters}
-        # Until then we have no data -> treat every direction as blocked.
+        if hasattr(self.api, "get_obstacles"):
+            return self._flags_to_distances(self.api.get_obstacles())
+        server = getattr(self.api, "_server", None)
+        if hasattr(server, "Plane_getBarrier"):
+            return self._flags_to_distances(server.Plane_getBarrier())
         return None
 
     def is_wired(self) -> bool:

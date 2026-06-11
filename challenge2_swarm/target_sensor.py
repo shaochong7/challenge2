@@ -5,7 +5,8 @@ The mission loop doesn't care whether targets come from a real YOLO model on a
 HULA camera feed or from a simulated convoy — it just calls sense() each tick
 and save_snapshot() when something new is found.
 
-  YoloTargetSensor  -> real: runs TargetDetector on stream.latest_frame
+  ArucoTargetSensor -> real: reads robot marker IDs from stream.latest_frame
+  YoloTargetSensor  -> optional: runs TargetDetector on stream.latest_frame
   SimTargetSensor   -> dry-run: "sees" ground robots within camera footprint
 """
 
@@ -32,6 +33,15 @@ class TargetSensor(Protocol):
     def save_snapshot(self, ctx, targets: list[SensedTarget], path: Path) -> int: ...
 
 
+def _frame_to_bgr(frame):
+    """Return an OpenCV BGR image from either pyhulax or legacy frame objects."""
+    if hasattr(frame, "image"):
+        return frame.image
+    if hasattr(frame, "to_rgb"):
+        return frame.to_rgb()
+    return frame
+
+
 class YoloTargetSensor:
     """Real sensor: YOLO on the HULA camera frame."""
 
@@ -45,7 +55,7 @@ class YoloTargetSensor:
         frame = stream.latest_frame if stream else None
         if frame is None:
             return []
-        bgr = frame.to_rgb()
+        bgr = _frame_to_bgr(frame)
         self._last_frame = bgr
         dets = self.detector.detect(bgr, conf=self.conf)
         return [
@@ -63,6 +73,108 @@ class YoloTargetSensor:
             for t in targets
         ]
         self.detector.save_snapshot(self._last_frame, path, dets)
+        return len(targets)
+
+
+class ArucoTargetSensor:
+    """Real sensor: detects robot ArUco marker IDs from the HULA camera frame."""
+
+    def __init__(self, dictionary_name: str = "DICT_7X7_1000", enhance: bool = True) -> None:
+        import cv2
+        from detection.aruco_depth import ARUCO_DICTS
+
+        aruco_dict = cv2.aruco.getPredefinedDictionary(ARUCO_DICTS[dictionary_name])
+        params = cv2.aruco.DetectorParameters()
+        params.adaptiveThreshWinSizeMin = 3
+        params.adaptiveThreshWinSizeMax = 53
+        params.adaptiveThreshWinSizeStep = 8
+        params.adaptiveThreshConstant = 5
+        params.minMarkerPerimeterRate = 0.02
+        self.detector = cv2.aruco.ArucoDetector(aruco_dict, params)
+        self.enhance = enhance
+        self._last_frame = None
+        self._last_corners = None
+        self._last_ids = None
+        self._last_enhanced = None
+
+    def _enhance_gray(self, bgr):
+        import cv2
+        import numpy as np
+
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if not self.enhance:
+            return gray
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        sharp = cv2.addWeighted(gray, 1.7, cv2.GaussianBlur(gray, (0, 0), 2), -0.7, 0)
+        return np.clip(sharp, 0, 255).astype("uint8")
+
+    def sense(self, ctx) -> list[SensedTarget]:
+        import cv2
+
+        stream = ctx.stream
+        frame = stream.latest_frame if stream else None
+        if frame is None:
+            return []
+
+        bgr = _frame_to_bgr(frame)
+        self._last_frame = bgr
+
+        gray = self._enhance_gray(bgr)
+        self._last_enhanced = gray
+        corners, ids, _ = self.detector.detectMarkers(gray)
+
+        self._last_corners = corners
+        self._last_ids = ids
+
+        if ids is None:
+            return []
+
+        seen: list[SensedTarget] = []
+        for marker_corner, marker_id in zip(corners, ids.flatten()):
+            pts = marker_corner.reshape((4, 2))
+            x1 = int(pts[:, 0].min())
+            y1 = int(pts[:, 1].min())
+            x2 = int(pts[:, 0].max())
+            y2 = int(pts[:, 1].max())
+
+            seen.append(
+                SensedTarget(
+                    confidence=1.0,
+                    bbox_xyxy=(x1, y1, x2, y2),
+                    target_id=int(marker_id),
+                )
+            )
+
+        return seen
+
+    def save_snapshot(self, ctx, targets: list[SensedTarget], path: Path) -> int:
+        import cv2
+
+        if self._last_frame is None:
+            return 0
+
+        img = self._last_frame.copy()
+
+        if self._last_ids is not None and self._last_corners is not None:
+            cv2.aruco.drawDetectedMarkers(img, self._last_corners, self._last_ids)
+
+        for t in targets:
+            if t.bbox_xyxy:
+                x1, y1, _x2, _y2 = t.bbox_xyxy
+                cv2.putText(
+                    img,
+                    f"ID {t.target_id}",
+                    (x1, max(20, y1 - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2,
+                )
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(path), img)
         return len(targets)
 
 

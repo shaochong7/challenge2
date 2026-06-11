@@ -16,9 +16,20 @@ import time
 from typing import Protocol, Tuple
 
 
-def parser_xy_to_ne(x: float, y: float) -> Tuple[float, float]:
-    """Convert organizer parser (x, y) to arena (North, East)."""
-    return y, x
+def parser_xy_to_ne(
+    x: float,
+    y: float,
+    *,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+) -> Tuple[float, float]:
+    """Convert organizer parser (x, y) to arena (North, East).
+
+    origin_x/origin_y follow the organizer UWBParserThread convention: they are
+    subtracted from raw parser coordinates to align the active cage origin.
+    """
+
+    return y - origin_y, x - origin_x
 
 
 class UWBSource(Protocol):
@@ -37,11 +48,20 @@ class UWBParserThreadC2:
     pyserial is imported lazily — not needed for simulation.
     """
 
-    def __init__(self, serial_port: str | None = None, baud_rate: int = 921600) -> None:
+    def __init__(
+        self,
+        serial_port: str | None = None,
+        baud_rate: int = 921600,
+        *,
+        origin_x: float = 0.0,
+        origin_y: float = 0.0,
+    ) -> None:
         self.serial_port = serial_port
         self.baud_rate = baud_rate
+        self.origin_x = float(origin_x)
+        self.origin_y = float(origin_y)
         self._lock = threading.Lock()
-        self._tag_data: dict[int, tuple[float, float, float]] = {}
+        self._tag_data: dict[int, tuple[float, float, float, float]] = {}
         self._thread: threading.Thread | None = None
         self._running = False
         self._parser = None
@@ -66,7 +86,10 @@ class UWBParserThreadC2:
         self._running = True
         self._thread = threading.Thread(target=self._run_serial, daemon=True)
         self._thread.start()
-        print(f"UWB C2 parser started on {port}")
+        print(
+            f"UWB C2 parser started on {port} "
+            f"(origin_x={self.origin_x:.2f}, origin_y={self.origin_y:.2f})"
+        )
 
     def _run_serial(self) -> None:
         import serial
@@ -97,15 +120,16 @@ class UWBParserThreadC2:
         if frame_header != 0x55 or function_mark != 0x00:
             return
         offset = 2
-        new_tags: dict[int, tuple[float, float, float]] = {}
+        new_tags: dict[int, tuple[float, float, float, float]] = {}
         for _ in range(30):
             if data[offset] != 0xFF:
                 block_id = data[offset]
                 offset += 2
                 pos_x = int.from_bytes(data[offset : offset + 3], "little", signed=True) / 1000.0
                 pos_y = int.from_bytes(data[offset + 3 : offset + 6], "little", signed=True) / 1000.0
+                pos_z = int.from_bytes(data[offset + 6 : offset + 9], "little", signed=True) / 1000.0
                 offset += 25
-                new_tags[block_id] = (pos_x, pos_y, time.time())
+                new_tags[block_id] = (pos_x, pos_y, pos_z, time.time())
             else:
                 offset += 27
         with self._lock:
@@ -116,8 +140,8 @@ class UWBParserThreadC2:
             entry = self._tag_data.get(tag_id)
         if entry is None:
             return 0.0, 0.0, False
-        x, y, _ = entry
-        n, e = parser_xy_to_ne(x, y)
+        x, y, _z, _ = entry
+        n, e = parser_xy_to_ne(x, y, origin_x=self.origin_x, origin_y=self.origin_y)
         return n, e, True
 
     def stop(self) -> None:

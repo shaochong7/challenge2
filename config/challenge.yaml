@@ -63,32 +63,51 @@ navigation:
 swarm:
   listen_seconds: 5
   plane_ids: [1, 2, 3]
+  selected_landing_marker_ids: [11, 45, 51]  # choose 3 out of the 5 valid landing zones
   # UWB on C2 (organizer UWBParserThread.py) — tag ID per drone, same order as plane_ids
   tag_ids: [0, 1, 2]
   uwb_serial_port: null   # null = auto-detect USB COM port
   uwb_baud_rate: 921600
+  # Align raw UWB parser coordinates to the active cage.
+  # Cage 1: x=0.0, y=0.0 | Cage 2: x=5.5, y=0.0 | Cage 3: x=5.5, y=5.5
+  uwb_origin_x: 0.0
+  uwb_origin_y: 0.0
   uwb_nav_timeout_s: 120
   waypoint_threshold_m: 0.12  # how close UWB must be to count a waypoint reached
   min_move_speed: 0.05        # floor so P-controller never stalls above threshold
   # Per-drone state machine timings (seconds)
   takeoff_wait_s: 5
   pad_land_wait_s: 1.0       # pause after landing on mapped pad before taking off to search
+  wait_for_search_release: true
+  search_release_key: "e"     # after all drones land on pads, press e to start search
+  auto_release_search_in_sim: true
+  max_mission_time_s: null    # null = no automatic mission time cap
   move_speed: 0.5             # BRIEF RULE: HULA max speed 0.5 m/s (assumes pyhulax
                               # move() speed is m/s — VERIFY units on the test drone)
-  hover_height_m: 1.1         # BRIEF: recommended HULA height; NEVER fly over obstacles
+  search_move_speed: 0.3      # slower search speed improves ArUco detection reliability
+  hover_height_m: 0.9         # target HULA hover height for ground ArUco detection
+  hover_height_max_m: 0.9     # cap HULA takeoff commands at 90 cm
+  hover_height_min_m: 0.85    # keep the search hover around 85-90 cm
+  camera_pitch_enabled: true  # point HULA camera toward the floor before video/search
+  camera_pitch_mode: "DOWN_ABSOLUTE"
+  camera_pitch_angle_deg: 90
   # --- Obstacle avoidance (BRIEF: strictly no flying over obstacles) ---
   # The HULA flies at a fixed low height and must go AROUND obstacles horizontally.
   obstacle_avoidance_enabled: true
   obstacle_source: "lidar"    # lidar | map  (lidar = HULA onboard; map = from Challenge 1)
-  obstacle_stop_distance_m: 0.6   # start avoiding when an obstacle is this close ahead
+  obstacle_hard_stop_distance_m: 0.05  # emergency hover if closer than 5 cm
+  obstacle_slowdown_rules_mps:
+    - { distance_m: 0.30, speed_mps: 0.30 }
+    - { distance_m: 0.20, speed_mps: 0.20 }
+    - { distance_m: 0.10, speed_mps: 0.10 }
   obstacle_clearance_m: 0.3       # inflate obstacles by ~drone radius + buffer
   # --- SEARCH phase: find + snapshot the ground-robot convoy (primary goal) ---
   # Down-facing camera model used to estimate search footprint.
   camera_model: "D430"
   # Use the bounds the mapping drone surveyed (from its map) when available.
-  use_map_bounds: true
+  use_map_bounds: false
   # Fallback arena bounds in UWB N/E if no Challenge 1 map is present — MEASURE.
-  search_area: { n_min: 0.0, n_max: 10.0, e_min: 0.0, e_max: 10.0 }
+  search_area: { n_min: 0.5, n_max: 9.5, e_min: 0.5, e_max: 4.5 }
   # Leg spacing depends on camera model and flight height; tune onsite for overlap.
   #   D430 ~2.1 m, D450 ~3.6 m. Tighten if you fly higher or want more overlap.
   search_spacing_m: 2.0

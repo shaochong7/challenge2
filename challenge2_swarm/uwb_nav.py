@@ -26,6 +26,11 @@ except ImportError:
         RIGHT = "RIGHT"
 
 
+BACK_DIRECTION = getattr(Direction, "BACK", getattr(Direction, "BACKWARD", None))
+if BACK_DIRECTION is None:
+    raise AttributeError("pyhulax Direction must expose BACK or BACKWARD")
+
+
 @dataclass
 class NavTickResult:
     at_goal: bool
@@ -37,6 +42,27 @@ class NavTickResult:
     geofence_violation: bool = False
     blocked: bool = False        # obstacle ahead and no clear way around this tick
     avoiding: bool = False       # moving around an obstacle (not straight to target)
+    obstacle_distance_m: float = math.inf
+
+
+def obstacle_speed_limit(
+    distance_m: float,
+    max_speed: float,
+    slowdowns: list[tuple[float, float]] | None = None,
+) -> float:
+    """Limit speed by nearest obstacle distance.
+
+    Thresholds are sorted closest-first so 0.10 m -> 0.1 m/s, then
+    0.20 m -> 0.2 m/s, then 0.30 m -> 0.3 m/s.
+    """
+
+    if not math.isfinite(distance_m):
+        return max_speed
+    rules = slowdowns or [(0.10, 0.1), (0.20, 0.2), (0.30, 0.3)]
+    for threshold_m, speed_mps in sorted(rules):
+        if distance_m <= threshold_m:
+            return min(max_speed, speed_mps)
+    return max_speed
 
 
 def velocity_to_direction(vn: float, ve: float, max_speed: float):
@@ -45,7 +71,7 @@ def velocity_to_direction(vn: float, ve: float, max_speed: float):
         return Direction.FORWARD, 0.0
     speed = min(mag, max_speed)
     if abs(vn) >= abs(ve):
-        direction = Direction.FORWARD if vn > 0 else Direction.BACKWARD
+        direction = Direction.FORWARD if vn > 0 else BACK_DIRECTION
     else:
         direction = Direction.RIGHT if ve > 0 else Direction.LEFT
     return direction, speed
@@ -57,7 +83,7 @@ def candidate_directions(vn: float, ve: float) -> list:
     Order: dominant-error axis, secondary-error axis, then the two lateral
     sidesteps perpendicular to the dominant axis (to route around an obstacle).
     """
-    n_dir = Direction.FORWARD if vn > 0 else Direction.BACKWARD
+    n_dir = Direction.FORWARD if vn > 0 else BACK_DIRECTION
     e_dir = Direction.RIGHT if ve > 0 else Direction.LEFT
     dirs: list = []
     if abs(vn) >= abs(ve):
@@ -71,7 +97,7 @@ def candidate_directions(vn: float, ve: float) -> list:
             dirs.append(e_dir)
         if abs(vn) > 1e-9:
             dirs.append(n_dir)
-        laterals = [n_dir, Direction.BACKWARD if n_dir == Direction.FORWARD else Direction.FORWARD]
+        laterals = [n_dir, BACK_DIRECTION if n_dir == Direction.FORWARD else Direction.FORWARD]
     for d in laterals:
         if d not in dirs:
             dirs.append(d)
@@ -88,6 +114,7 @@ def uwb_nav_tick(
     geofence: ArenaBounds | None = None,
     obstacle_sensor: ObstacleSensor | None = None,
     stop_distance: float = 0.0,
+    slowdowns: list[tuple[float, float]] | None = None,
 ) -> NavTickResult:
     n, e, ready = uwb.get_tag_ne(tag_id)
     if not ready:
@@ -117,14 +144,20 @@ def uwb_nav_tick(
             direction=direction, speed=speed,
         )
 
-    # Obstacle-aware: pick the first candidate direction that is clear ahead.
+    # Obstacle-aware: pick the first candidate direction that is not in the
+    # hard-stop zone, then reduce speed based on proximity.
     prefs = candidate_directions(vn, ve)
     for idx, direction in enumerate(prefs):
         dn, de = DIR_DELTA[direction]
-        if obstacle_sensor.distance_ahead(n, e, dn, de) > stop_distance:
+        distance_m = obstacle_sensor.distance_ahead(n, e, dn, de)
+        if distance_m > stop_distance:
+            limited_speed = obstacle_speed_limit(distance_m, speed, slowdowns)
             return NavTickResult(
                 at_goal=False, ready=True, current_n=n, current_e=e,
-                direction=direction, speed=speed, avoiding=(idx > 0),
+                direction=direction,
+                speed=limited_speed,
+                avoiding=(idx > 0),
+                obstacle_distance_m=distance_m,
             )
     # Every direction toward/around the obstacle is blocked -> hold position.
     return NavTickResult(
@@ -134,19 +167,41 @@ def uwb_nav_tick(
 
 def apply_nav_tick(api, tick: NavTickResult, *, min_speed: float = 0.05) -> bool:
     """Apply one nav tick. Returns True if geofence was violated."""
-    if tick.geofence_violation:
-        api.hover()
-        return True
+    def _hover() -> None:
+        try:
+            api.hover(1, blocking=False)
+        except TypeError:
+            try:
+                api.hover(1)
+            except TypeError:
+                api.hover()
+
     if not tick.ready:
-        api.hover()
+        # No UWB position yet. The drone holds position after takeoff; repeatedly
+        # sending hover commands here just spams pyhulax while waiting for UWB.
         return False
+
+    if tick.geofence_violation:
+        _hover()
+        return True
     if tick.at_goal or tick.blocked:
         # blocked = obstacle ahead with no clear way around -> hold, don't fly over
-        api.hover()
+        _hover()
         return False
     speed = max(tick.speed, min_speed) if tick.speed > 0 else 0.0
     if speed <= 0.0:
-        api.hover()
+        _hover()
         return False
     api.move(tick.direction, speed)
     return False
+
+
+def hover_hold(api) -> None:
+    """Hold briefly across pyhulax versions."""
+    try:
+        api.hover(1, blocking=False)
+    except TypeError:
+        try:
+            api.hover(1)
+        except TypeError:
+            api.hover()

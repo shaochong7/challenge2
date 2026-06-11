@@ -128,7 +128,13 @@ def land_all_hulas(contexts: dict) -> None:
     """Synchronously land every HULA (best effort). Never raises."""
     for ctx in contexts.values():
         try:
-            ctx.api.hover()
+            try:
+                ctx.api.hover(1, blocking=False)
+            except TypeError:
+                try:
+                    ctx.api.hover(1)
+                except TypeError:
+                    ctx.api.hover()
         except Exception:
             pass
         try:

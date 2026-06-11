@@ -19,6 +19,11 @@ except ImportError:
         RIGHT = "RIGHT"
 
 
+BACK_DIRECTION = getattr(Direction, "BACK", getattr(Direction, "BACKWARD", None))
+if BACK_DIRECTION is None:
+    raise AttributeError("pyhulax Direction must expose BACK or BACKWARD")
+
+
 MOVE_SCALE = 0.18  # meters per move() tick at speed 1.0 (sim only; tune for laptop dry-run)
 
 
@@ -72,7 +77,7 @@ class FakeDroneAPI:
         step = MOVE_SCALE * speed
         if direction == Direction.FORWARD:
             dn = step
-        elif direction == Direction.BACKWARD:
+        elif direction == BACK_DIRECTION:
             dn = -step
         elif direction == Direction.RIGHT:
             de = step
