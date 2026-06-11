@@ -342,9 +342,16 @@ def run_swarm_loop(
             f"Requested hover height {requested_hover_height_m:.2f} m exceeds "
             f"limit - capping takeoff to {hover_height_m:.2f} m"
         )
-    nav_timeout = float(swarm_cfg.get("uwb_nav_timeout_s", 120))
+    nav_timeout_raw = swarm_cfg.get("uwb_nav_timeout_s")
+    nav_timeout = None if nav_timeout_raw is None else float(nav_timeout_raw)
     # Skip a search waypoint we can't reach in time (e.g. blocked by an obstacle).
-    wp_timeout = float(swarm_cfg.get("search_wp_timeout_s", min(30.0, nav_timeout)))
+    wp_timeout_raw = swarm_cfg.get("search_wp_timeout_s", "__missing__")
+    if wp_timeout_raw == "__missing__":
+        wp_timeout = 30.0 if nav_timeout is None else min(30.0, nav_timeout)
+    elif wp_timeout_raw is None:
+        wp_timeout = None
+    else:
+        wp_timeout = float(wp_timeout_raw)
     min_move_speed = float(swarm_cfg.get("min_move_speed", 0.05))
     slowdowns = obstacle_slowdown_rules(swarm_cfg)
     slowdown_print_distance = max((distance for distance, _speed in slowdowns), default=0.0)
@@ -564,7 +571,9 @@ def run_swarm_loop(
 
                 elif ctx.state == DroneState.GO_TO_ZONE:
                     tick = _nav_to(ctx, ctx.target_n, ctx.target_e)
-                    if tick.at_goal or _elapsed(ctx) > nav_timeout:
+                    if tick.at_goal or (
+                        nav_timeout is not None and _elapsed(ctx) > nav_timeout
+                    ):
                         _set_state(ctx, DroneState.LAND)
 
                 elif ctx.state == DroneState.LAND:
@@ -637,7 +646,10 @@ def run_swarm_loop(
                         continue
                     wn, we = ctx.search_waypoints[ctx.search_idx]
                     tick = _nav_to(ctx, wn, we, speed_limit=search_move_speed)
-                    stalled = (time.time() - ctx.wp_started) > wp_timeout
+                    stalled = (
+                        wp_timeout is not None
+                        and (time.time() - ctx.wp_started) > wp_timeout
+                    )
                     if tick.at_goal or stalled:
                         if stalled and not tick.at_goal:
                             print(

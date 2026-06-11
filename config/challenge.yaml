@@ -72,7 +72,7 @@ swarm:
   # Cage 1: x=0.0, y=0.0 | Cage 2: x=5.5, y=0.0 | Cage 3: x=5.5, y=5.5
   uwb_origin_x: 5.0
   uwb_origin_y: 0.0
-  uwb_nav_timeout_s: 120
+  uwb_nav_timeout_s: null     # null = keep trying assigned landing coordinate until reached/interrupted
   waypoint_threshold_m: 0.12  # how close UWB must be to count a waypoint reached
   min_move_speed: 0.05        # floor so P-controller never stalls above threshold
   # Per-drone state machine timings (seconds)
@@ -82,9 +82,9 @@ swarm:
   search_release_key: "e"     # after all drones land on pads, press e to start search
   auto_release_search_in_sim: true
   max_mission_time_s: null    # null = no automatic mission time cap
-  move_speed: 0.5             # BRIEF RULE: HULA max speed 0.5 m/s (assumes pyhulax
+  move_speed: 0.35            # BRIEF RULE: HULA max speed 0.5 m/s (assumes pyhulax
                               # move() speed is m/s — VERIFY units on the test drone)
-  search_move_speed: 0.3      # slower search speed improves ArUco detection reliability
+  search_move_speed: 0.2      # slower search speed improves ArUco detection reliability
   hover_height_m: 0.9         # target HULA hover height for ground ArUco detection
   hover_height_max_m: 0.9     # cap HULA takeoff commands at 90 cm
   hover_height_min_m: 0.85    # keep the search hover around 85-90 cm
